@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Super Mario Style Game</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background: #6b8cff;
+            font-family: Arial, sans-serif;
+        }
+        #game {
+            position: relative;
+            width: 800px;
+            height: 400px;
+            background: linear-gradient(#6b8cff, #98c2ff);
+            overflow: hidden;
+            border: 4px solid #333;
+        }
+        #player {
+            position: absolute;
+            width: 40px;
+            height: 60px;
+            background: red;
+            bottom: 0;
+            transition: transform 0.1s;
+        }
+        .platform {
+            position: absolute;
+            background: #5b3f2b;
+            border: 2px solid #3a2815;
+        }
+        .coin {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background: gold;
+            border-radius: 50%;
+            animation: coinFloat 1s infinite ease-in-out;
+        }
+        @keyframes coinFloat {
+            0% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
+            100% { transform: translateY(0); }
+        }
+        #score {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-size: 24px;
+            text-shadow: 2px 2px 2px rgba(0,0,0,0.5);
+        }
+        #level {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: white;
+            font-size: 24px;
+            text-shadow: 2px 2px 2px rgba(0,0,0,0.5);
+        }
+    </style>
+</head>
+<body>
+    <div id="game">
+        <div id="player"></div>
+        <div id="score">Coins: 0</div>
+        <div id="level">Level: 1</div>
+    </div>
+
+    <script>
+        const game = document.getElementById('game');
+        const player = document.getElementById('player');
+        const scoreElement = document.getElementById('score');
+        const levelElement = document.getElementById('level');
+
+        // Game state
+        let playerPos = { x: 50, y: 0 };
+        let velocity = { x: 0, y: 0 };
+        let grounded = false;
+        let score = 0;
+        let currentLevel = 1;
+        let platforms = [];
+        let coins = [];
+        let facing = 'right';
+
+        // Constants
+        const GRAVITY = 0.5;
+        const JUMP_FORCE = -12;
+        const MOVE_SPEED = 5;
+        const FRICTION = 0.8;
+        const TOTAL_COINS = 10;
+
+        // Sound effects (using basic oscillator for simplicity)
+        function playSound(frequency, duration, type = 'square') {
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.type = type;
+            oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
+            
+            gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.start();
+            setTimeout(() => {
+                oscillator.stop();
+                audioContext.close();
+            }, duration * 1000);
+        }
+
+        function generateLevel() {
+            // Clear existing elements
+            while (game.children.length > 3) {
+                game.removeChild(game.lastChild);
+            }
+            
+            platforms = [
+                { x: 0, y: 350, width: 800, height: 50 } // Ground platform
+            ];
+
+            // Generate random platforms
+            for (let i = 0; i < 5 + currentLevel; i++) {
+                const platform = {
+                    x: Math.random() * 600,
+                    y: Math.random() * 250 + 50,
+                    width: Math.random() * 100 + 100,
+                    height: 20
+                };
+                platforms.push(platform);
+            }
+
+            // Create platform elements
+            platforms.forEach(platform => {
+                const element = document.createElement('div');
+                element.className = 'platform';
+                element.style.left = platform.x + 'px';
+                element.style.top = platform.y + 'px';
+                element.style.width = platform.width + 'px';
+                element.style.height = platform.height + 'px';
+                game.appendChild(element);
+            });
+
+            // Generate coins
+            coins = [];
+            for (let i = 0; i < TOTAL_COINS; i++) {
+                const coin = document.createElement('div');
+                coin.className = 'coin';
+                const x = Math.random() * 760;
+                const y = Math.random() * 300;
+                coin.style.left = x + 'px';
+                coin.style.top = y + 'px';
+                game.appendChild(coin);
+                coins.push({ element: coin, x, y, collected: false });
+            }
+
+            // Reset player position
+            playerPos = { x: 50, y: 0 };
+            velocity = { x: 0, y: 0 };
+        }
+
+        // Input handling
+        const keys = {};
+        document.addEventListener('keydown', e => {
+            keys[e.key] = true;
+            if (e.key === 'ArrowUp' && grounded) {
+                playSound(400, 0.1, 'square'); // Jump sound
+            }
+        });
+        document.addEventListener('keyup', e => keys[e.key] = false);
+
+        function checkCollision() {
+            grounded = false;
+            
+            platforms.forEach(platform => {
+                if (playerPos.x + 40 > platform.x &&
+                    playerPos.x < platform.x + platform.width &&
+                    playerPos.y + 60 > platform.y &&
+                    playerPos.y < platform.y + platform.height) {
+                    
+                    if (velocity.y > 0 && playerPos.y + 60 - velocity.y <= platform.y) {
+                        playerPos.y = platform.y - 60;
+                        velocity.y = 0;
+                        grounded = true;
+                    }
+                }
+            });
+        }
+
+        function checkCoinCollection() {
+            let allCollected = true;
+            coins.forEach(coin => {
+                if (!coin.collected &&
+                    playerPos.x + 40 > coin.x &&
+                    playerPos.x < coin.x + 20 &&
+                    playerPos.y + 60 > coin.y &&
+                    playerPos.y < coin.y + 20) {
+                    coin.collected = true;
+                    coin.element.style.display = 'none';
+                    score += 1;
+                    scoreElement.textContent = `Coins: ${score}`;
+                    playSound(600, 0.1, 'sine'); // Coin collection sound
+                }
+                if (!coin.collected) allCollected = false;
+            });
+
+            if (allCollected) {
+                currentLevel++;
+                levelElement.textContent = `Level: ${currentLevel}`;
+                playSound(800, 0.3, 'square'); // Level complete sound
+                generateLevel();
+            }
+        }
+
+        // Game loop
+        function update() {
+            // Horizontal movement
+            if (keys['ArrowLeft']) {
+                velocity.x -= MOVE_SPEED;
+                facing = 'left';
+                player.style.transform = 'scaleX(-1)';
+            }
+            if (keys['ArrowRight']) {
+                velocity.x += MOVE_SPEED;
+                facing = 'right';
+                player.style.transform = 'scaleX(1)';
+            }
+            
+            velocity.x *= FRICTION;
+            
+            // Apply gravity
+            if (!grounded) {
+                velocity.y += GRAVITY;
+            }
+            
+            // Jump
+            if (keys['ArrowUp'] && grounded) {
+                velocity.y = JUMP_FORCE;
+                grounded = false;
+            }
+            
+            // Update position
+            playerPos.x += velocity.x;
+            playerPos.y += velocity.y;
+            
+            // Screen boundaries
+            if (playerPos.x < 0) playerPos.x = 0;
+            if (playerPos.x > 760) playerPos.x = 760;
+            if (playerPos.y > 400) {
+                playerPos.y = 0;
+                velocity.y = 0;
+            }
+            
+            checkCollision();
+            checkCoinCollection();
+
+            // Update player position
+            player.style.left = playerPos.x + 'px';
+            player.style.top = playerPos.y + 'px';
+
+            requestAnimationFrame(update);
+        }
+
+        // Start the game
+        generateLevel();
+        update();
+    </script>
+</body>
+</html>
